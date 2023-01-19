@@ -1,6 +1,9 @@
 ﻿using BepInEx;
 using HarmonyLib;
 using TT;
+using TT.UI;
+using System;
+using System.Reflection;
 using System.Collections.Generic;
 
 namespace BetterUITenderfootTactics;
@@ -13,34 +16,29 @@ public class Plugin : BaseUnityPlugin {
         Harmony.CreateAndPatchAll(typeof(Plugin));
     }
     
-    [HarmonyPatch(typeof(CombatNumberKeyShortcuts), "numberKey")]
+    [HarmonyPatch(typeof(CombatNumberKeyShortcuts), "Applicable", MethodType.Getter)]
     [HarmonyPrefix]
-    static bool newNumberKey(Input.ButtonState buttonState,
-                             int key, CombatNumberKeyShortcuts __instance) {
-        var Log = BepInEx.Logging.Logger.CreateLogSource("Log");
-        if (buttonState.pressedThisFrame) {
-            Log.LogDebug($"{buttonState} pressed this frame");
-            
-            key--;
-            if (key < 0) {
-                Log.LogDebug($"Before: {key}");
-                key += 10;
-                Log.LogDebug($"After: {key}");
-            }
-            ActionMenuOption actionMenuOption = null;
-            List<ActAction> actions = Traverse.Create(__instance)
-                                              .Field("actions")
-                                              .GetValue() as List<ActAction>;
-            if (key >= 0 && key < actions.Count) {
-                actionMenuOption = actions[key];
-            }
-            if (actionMenuOption && Combat.isActionAvailable(actionMenuOption)) {
-                if (ActionMenu.onSelectionMade != null) {
-                    ActionMenu.onSelectionMade(actionMenuOption);
-                }
-                actionMenuOption.activateMenuOption();
-            }
+    static bool newApplicable(ref bool __result) {
+        __result = Combat.active
+                   && !CombatDeployment.active
+                   && Combat.PlayerTurn
+                   && (Combat.state == Combat.State.Surveying
+                       || Combat.state == Combat.State.Acting);
+        return false;
+    }
+
+    [HarmonyPatch(typeof(CombatNumberKeyShortcuts), "refresh")]
+    [HarmonyPostfix]
+    static void postRefresh(CombatNumberKeyShortcuts __instance) {
+        Traverse.Create(__instance).Property("inActSubmenu").SetValue(true);
+        if (!(Combat.activeUnit is null)) {
+            ActionTooltipUI.SetNumbers(__instance, Combat.activeUnit.knownJobActions);
         }
+    }
+
+    [HarmonyPatch(typeof(CombatNumberKeyShortcuts), "cursor")]
+    [HarmonyPrefix]
+    static bool newCursor(Input.CursorState cursorState) {
         return false;
     }
 }
